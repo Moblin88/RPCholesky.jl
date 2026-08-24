@@ -74,12 +74,12 @@ end
 
 """
     rpcholesky(kernel, data, [Val(true)];
-               rank=min(n, 50), rtol=0.05, atol=1e-8, block_size, rng=Random.default_rng())
+               lags=1, rank=min(n, 50), rtol=0.05, atol=1e-8, block_size, rng=Random.default_rng())
 
 Compute an Accelerated Randomly Pivoted Cholesky low-rank factor `G` such that
-`G * G' ≈ K`, where `K[i,j] = kernel(data[i,:], data[j,:])`. `data` may be
+`G * G' ≈ K`, where `K[i,j] = kernel(data[range(i; length=lags), :], data[range(j; length=lags), :])`. `data` may be
 any one-based, row-indexable collection that supports `size(data, 1)` and
-`view(data, i, :)`; this includes ordinary matrices and `DataFrame`s.
+`view(data, range(i; length=lags), :)`; this includes ordinary matrices and `DataFrame`s.
 
 Only `O(n·k + b²·iters)` kernel evaluations are performed (vs `O(n²)` for the
 full matrix), where `b` is the block size and `iters` is the number of outer
@@ -101,6 +101,7 @@ Whichever happens first.
 - `data`        : `n × d` row-indexable data collection (for example, a
                   matrix or `DataFrame`). Rows are passed to `kernel` as
                   `view(data, i, :)`.
+- `lags`        : number of rows to include in each kernel evaluation (default: `1`).
 - `rank`        : maximum rank to compute (default: `min(n, 50)`).
 - `rtol`        : relative residual trace cutoff (default: `0.05`).
 - `atol`        : absolute residual trace cutoff (default: `1e-8`).
@@ -136,21 +137,24 @@ function rpcholesky(
     kernel,
     data,
     ::Val{P} = Val(false);
-    rank = min(size(data, 1), 50),
+    lags = 1,
+    rank = min(size(data, 1) - lags + 1, 50),
     rtol = 0.05,
     atol = 1e-8,
-    block_size = clamp(round(Int, sqrt(size(data, 1))), 4, 24),
+    block_size = clamp(round(Int, sqrt(size(data, 1) - lags + 1)), 4, 24),
     rng = Random.default_rng()
 ) where {P}
     Base.require_one_based_indexing(data)
-    n = size(data, 1)
+    1 <= lags <= size(data, 1) || throw(ArgumentError("lags must be in [1, n]"))
+    n = size(data, 1) - lags + 1
+    1 <= block_size <= n || throw(ArgumentError("block_size must be in [1, n]"))
     0 <= rtol < 1 || throw(ArgumentError("rtol must be in [0, 1)"))
     0 <= rank <= n || throw(ArgumentError("rank must be in [0, n]"))
-    @inbounds trace_mass = kernel(view(data, 1, :), view(data, 1, :))
+    @inbounds trace_mass = kernel(view(data, range(1; length=lags), :), view(data, range(1; length=lags), :))
     d = Vector{typeof(trace_mass)}(undef, n)
     @inbounds d[1] = trace_mass
     @inbounds for i in 2:n
-        val = kernel(view(data, i, :), view(data, i, :))
+        val = kernel(view(data, range(i; length=lags), :), view(data, range(i; length=lags), :))
         d[i] = val
         trace_mass += val
     end
@@ -177,9 +181,9 @@ function rpcholesky(
         # Phase 2 — form block_size×block_size residual submatrix H = K[idx,idx] - G[idx,1:k]*G[idx,1:k]'
         # Fill lower triangle only
         @inbounds for j in 1:block_size
-            xj = view(data, idx[j], :)
+            xj = view(data, range(idx[j]; length=lags), :)
             for i in j:block_size
-                H[i, j] = kernel(view(data, idx[i], :), xj)
+                H[i, j] = kernel(view(data, range(idx[i]; length=lags), :), xj)
             end
         end
         # copy up, even though we don't need it, so that we can use BLAS for the Schur complement update
@@ -202,9 +206,9 @@ function rpcholesky(
         # G[:, k+1:k+r] * L' = K[:, global_idx] - G[:,1:k] * G[global_idx,1:k]'
         G_new_cols = view(G, :, k+1:k+r)
         @inbounds for i in 1:r
-            xi = view(data, global_idx_view[i], :)
+            xi = view(data, range(global_idx_view[i]; length=lags), :)
             for j in 1:n
-                G_new_cols[j, i] = kernel(view(data, j, :), xi)
+                G_new_cols[j, i] = kernel(view(data, range(j; length=lags), :), xi)
             end
         end
         Gk[1:r,1:k] .= G[global_idx_view, 1:k] # not a view since we need a contiguous block for BLAS

@@ -17,6 +17,9 @@ end
 
 Random.seed!(42)
 
+rbf(x, y) = exp(-sum((xi - yi)^2 for (xi, yi) in zip(x, y)) / 2.0)
+rbf(x::AbstractDataFrame, y::AbstractDataFrame) = rbf(Matrix(x), Matrix(y))
+
 @testset "AcceleratedRPCholesky.jl" begin
 
     @testset "_block_pivot_cholesky! in-place factorization" begin
@@ -78,8 +81,6 @@ Random.seed!(42)
         d = 3
         X = randn(n, d)
 
-        rbf(x, y) = exp(-sum((xi - yi)^2 for (xi, yi) in zip(x, y)) / 2.0)
-
         K = [rbf(X[i,:], X[j,:]) for i in 1:n, j in 1:n]
 
         @testset "default returns a matrix" begin
@@ -98,11 +99,25 @@ Random.seed!(42)
 
         @testset "supports DataFrames" begin
             data = DataFrame(x=X[:, 1], y=X[:, 2], z=X[:, 3])
-            dataframe_rbf(x, y) = exp(-sum((xi - yi)^2 for (xi, yi) in zip(x, y)) / 2.0)
-            G = rpcholesky(dataframe_rbf, data; rank=5)
+            G = rpcholesky(rbf, data; rank=5)
             @test G isa Matrix{Float64}
             @test size(G, 1) == n
             @test size(G, 2) <= 5
+        end
+
+        @testset "supports lags > 1" begin
+            lags = 2
+            Xlags = randn(n + lags - 1, d)
+            Klags = [rbf(view(Xlags, i:i+lags-1, :), view(Xlags, j:j+lags-1, :)) for i in 1:n, j in 1:n]
+            G = rpcholesky(rbf, Xlags; lags=lags, rank=n, rtol=1e-6, block_size=4)
+            @test size(G, 1) == n
+            @test size(G, 2) <= n
+            @test norm(Klags - G * G', 1) / norm(Klags, 1) < 0.5
+        end
+
+        @testset "lags validation" begin
+            @test_throws ArgumentError rpcholesky(rbf, X; lags=0)
+            @test_throws ArgumentError rpcholesky(rbf, X; lags=n + 1)
         end
 
         @testset "preserves Float32 kernel type" begin
@@ -180,6 +195,15 @@ Random.seed!(42)
             Random.seed!(42)
             G, pivots = rpcholesky(rbf, X, Val(true); rank=2, block_size=6)
             @test size(G, 2) <= 2
+            @test length(pivots) == size(G, 2)
+        end
+
+        @testset "lags with pivots" begin
+            lags = 2
+            Xlags = randn(n + lags - 1, d)
+            G, pivots = rpcholesky(rbf, Xlags, Val(true); lags=lags, rank=6, block_size=3)
+            @test G isa Matrix
+            @test pivots isa Vector{Int}
             @test length(pivots) == size(G, 2)
         end
 

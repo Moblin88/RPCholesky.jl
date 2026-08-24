@@ -37,16 +37,18 @@ G, pivots = rpcholesky(rbf, X, Val(true); rank=30, rtol=0.01)
 
 ## API
 
-### `rpcholesky(kernel, data; rank=min(n, 50), rtol=0.05, atol=1e-8, block_size=clamp(round(Int, √n), 4, 24), rng=Random.default_rng())`
+### `rpcholesky(kernel, data; lags=1, rank=min(n, 50), rtol=0.05, atol=1e-8, block_size=clamp(round(Int, √n), 4, 24), rng=Random.default_rng())`
 
 Compute a low-rank factor for the kernel matrix induced by `kernel` on rows of
 `data`. `data` can be any one-based row-indexable collection supporting
-`size(data, 1)` and `view(data, i, :)`, including matrices and DataFrames.
+`size(data, 1)` and `view(data, range(i; length=lags), :)`, including matrices and DataFrames. 
+`kernel` should support rectangular arguments as multiple rows are passed according to the `lags` parameter.
 
 | Parameter    | Default              | Description                                           |
 |--------------|----------------------|-------------------------------------------------------|
 | `kernel`     | —                    | Callable `kernel(xᵢ, xⱼ) -> scalar`.                 |
-| `data`       | —                    | `n × d` row-indexable data; rows are data points.     |
+| `data`       | —                    | `(n + lags -1) × d` row-indexable data; rows are data points.     |
+| `lags`       | `1`                  | rows of the data to include in each kernel evaluation.| 
 | `rank`       | `min(n, 50)`         | Maximum rank.                                         |
 | `rtol`       | `0.05`               | Stop when residual trace is at most `rtol * tr(K)`.   |
 | `atol`       | `1e-8`               | Stop when residual trace is at most this value.       |
@@ -66,13 +68,13 @@ Returns:
   `pivots` is an integer vector containing the global indices of the accepted pivots
   and `k = length(pivots)`.
 
-For a DataFrame, the kernel receives each observation as a `DataFrameRow`:
+For a DataFrame, the kernel receives each observation as a `SubDataFrame`. This requires care in the definition of your kernel function as you cannot iterate over the elements of a dataframe directly and DataFrames are not type stable. Making your kernel type stable with an explicit return type will allow rpcholesky to be type stable, but performance will generally be better if you first convert your data frame to a Matrix:
 
 ```julia
 using DataFrames
 
 data = DataFrame(x=randn(500), y=randn(500), z=randn(500))
-rbf(x, y) = exp(-sum((xi - yi)^2 for (xi, yi) in zip(x, y)) / 2)
+rbf(x, y)::Float64 = exp(-sum((xi - yi)^2 for (xi, yi) in zip(Matrix(x), Matrix(y))) / 2)
 G = rpcholesky(rbf, data)
 G = rpcholesky(rbf, data; rank=30, rtol=0.01)
 G, pivots = rpcholesky(rbf, data, Val(true); rank=30, rtol=0.01)
