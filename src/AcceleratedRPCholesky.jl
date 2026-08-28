@@ -151,7 +151,7 @@ function rpcholesky(
     0 <= rtol < 1 || throw(ArgumentError("rtol must be in [0, 1)"))
     0 <= rank <= n || throw(ArgumentError("rank must be in [0, n]"))
     @inbounds trace_mass = kernel(view(data, range(1; length=lags), :), view(data, range(1; length=lags), :))
-    d = Vector{typeof(trace_mass)}(undef, n)
+    d = similar(data, typeof(trace_mass), n)
     @inbounds d[1] = trace_mass
     @inbounds for i in 2:n
         val = kernel(view(data, range(i; length=lags), :), view(data, range(i; length=lags), :))
