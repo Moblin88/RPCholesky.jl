@@ -72,6 +72,9 @@ function _block_pivot_cholesky!(H, idx, max_accepted, abs_tol, u, rng = Random.d
     return LowerTriangular(view(H, 1:r, 1:r)), r
 end
 
+_allocate_vector(data::AbstractArray, ::Type{T}, n) where {T} = similar(data, T, n)
+_allocate_vector(data, ::Type{T}, n) where {T} = Vector{T}(undef, n)
+
 """
     rpcholesky(kernel, data, [Val(true)];
                lags=1, rank=min(n, 50), rtol=0.05, atol=1e-8, block_size, rng=Random.default_rng())
@@ -151,7 +154,7 @@ function rpcholesky(
     0 <= rtol < 1 || throw(ArgumentError("rtol must be in [0, 1)"))
     0 <= rank <= n || throw(ArgumentError("rank must be in [0, n]"))
     @inbounds trace_mass = kernel(view(data, range(1; length=lags), :), view(data, range(1; length=lags), :))
-    d = similar(data, typeof(trace_mass), n)
+    d = _allocate_vector(data, typeof(trace_mass), n)
     @inbounds d[1] = trace_mass
     @inbounds for i in 2:n
         val = kernel(view(data, range(i; length=lags), :), view(data, range(i; length=lags), :))
