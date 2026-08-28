@@ -76,6 +76,14 @@ rbf(x::AbstractDataFrame, y::AbstractDataFrame) = rbf(Matrix(x), Matrix(y))
         @test Matrix(L) ≈ cholesky(H0[selected, selected]).L
     end
 
+    @testset "_allocate_vector dispatch" begin
+        X = randn(4, 2)
+        @test AcceleratedRPCholesky._allocate_vector(X, Float64, 4) isa Vector{Float64}
+
+        data = DataFrame(x=X[:, 1], y=X[:, 2])
+        @test AcceleratedRPCholesky._allocate_vector(data, Float64, 4) isa Vector{Float64}
+    end
+
     @testset "rpcholesky - kernel interface" begin
         n = 15
         d = 3
